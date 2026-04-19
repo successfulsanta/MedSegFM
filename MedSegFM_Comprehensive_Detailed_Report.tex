@@ -26,6 +26,24 @@
 This detailed report documents the end-to-end medical segmentation pipeline built for the AMOS22 dataset in the MedSegFM workspace. It details exact quantitative outcomes, dataset statistics, failure categorization percentages, and extensive qualitative visualization mappings. The objective was to create a strict fairness-enforced experimentation system to evaluate pretraining, adaptation, and prompting strategies for building a unified hybrid segmentation model. This report captures the methodology, numerical evaluations, and visual diagnostics used to construct the final artifact.
 \end{abstract}
 
+\section{Project Timeline and Build Path}
+The project was not completed in a single pass. It moved through a sequence of linked stages, where each stage created the inputs needed by the next one and surfaced the engineering issues that had to be resolved before the final hybrid model could be trusted.
+
+\begin{longtable}{p{0.17\textwidth}p{0.31\textwidth}p{0.40\textwidth}}
+\toprule
+Stage & Why it was done & What it produced \\
+\midrule
+Raw dataset audit & To distinguish the true AMOS data from archive residue and confirm which folders could be used safely. & Verified that \texttt{amos22/} was the real dataset and \texttt{\_\_MACOSX/} was only metadata residue. \\
+Step 2 assembly and cleaning & To pair images and labels, detect missing cases, and create deterministic splits that every later experiment could reuse. & 600 discovered cases, 360 usable cases, 240 missing pairs, and split manifests for train/val/test. \\
+Step 3 preprocessing & To normalize orientation, spacing, and intensity so the model saw consistent 3D volumes. & Preprocessed NIfTI volumes, manifest metadata, and a visual sanity-check figure. \\
+Baseline training stack & To establish a reference model and a reproducible training loop. & CLI commands, checkpointing, validation logs, inference, and qualitative outputs. \\
+Fairness locks and variant comparisons & To ensure that component comparisons were actually apples-to-apples. & Fairness fingerprints, run summaries, and filtered comparison tables. \\
+Failure analysis and final hybrid build & To understand failure modes and then assemble the best final configuration from the available evidence. & Final-hybrid config, comparison tables, packaged inference scripts, and the final report/PDF. \\
+\bottomrule
+\end{longtable}
+
+The important point is that the final model was not chosen by intuition. It was assembled from a chain of reproducible artifacts: manifests, configs, training histories, validation outputs, fairness checks, comparison CSVs, and failure-review plots.
+
 \tableofcontents
 \newpage
 
@@ -72,6 +90,24 @@ To fix domain heterogeneity, preprocessing standardization processes enforced:
 \label{fig:preprocess_sanity}
 \end{figure}
 
+\section{Training Loop, Validation Flow, and Smoke Runs}
+Once the data were standardized, the next step was to validate that the full training stack could actually run end-to-end. This stage was important because it exposed the first real engineering issues: Windows multiprocessing pickling, mixed batch structures during inference, and the behavior of tiny smoke datasets where many metrics become undefined.
+
+\subsection{How training works}
+The trainer builds the model, applies pretraining initialization, applies the chosen adaptation strategy, creates train and validation loaders, and then executes a standard optimization loop with AMP, gradient accumulation, early stopping, and checkpointing. At each validation interval, it runs sliding-window inference over the validation split, computes case metrics, saves a per-case CSV, and stores the best checkpoint by validation Dice.
+
+\subsection{Why this mattered}
+Without this step, the rest of the comparisons would have been theoretical only. The smoke runs confirmed that the data loader, model factory, loss function, optimizer, scheduler, and evaluation path all cooperate on the real filesystem layout.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{experiments/smoke_unet_20260419_104725/visuals/epoch_001_AMOS22__amos_0009.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{experiments/full_ft/no_prompt/exp_010_final_hybrid_smoke_20260419_132059/visuals/epoch_001_AMOS22__amos_0009.png}
+\caption{Early qualitative training snapshots. Left: baseline smoke run. Right: final-hybrid smoke run. These figures were used as plumbing checks rather than scientific performance claims.}
+\label{fig:training_snapshots}
+\end{figure}
+
 \section{Model Infrastructure and Fairness Standardization}
 The project utilized a unified backbone infrastructure that systematically controlled optimization variables. 
 
@@ -93,21 +129,136 @@ A persistent cryptographic tracking protocol (\textit{Fairness Fingerprint}) loc
     \item \textbf{Invariant Blocks}: 100\% of experiments shared identical scheduling budgets, early stopping criteria (patience: 30 epochs), and data caching parameters.
 \end{itemize}
 
+The later smoke reruns also exposed the fairness guardrails in action. Two final-hybrid reruns were flagged invalid because their schedule overrides changed \texttt{train.max\_epochs} and \texttt{train.early\_stopping\_patience}. That is exactly the kind of mismatch the fairness lock was built to detect, and it is why the report distinguishes between fair comparison runs and debugging reruns.
+
+\section{Module Map and Responsibilities}
+The repository is organized so that each experimental concern has a dedicated implementation surface. That separation was critical because the final hybrid model depended on having independent controls for data loading, pretraining, adaptation, prompting, fairness checking, evaluation, and final packaging.
+
+\begin{longtable}{p{0.18\textwidth}p{0.30\textwidth}p{0.42\textwidth}}
+\toprule
+Module & Main responsibility & Why it mattered in this project \\
+\midrule
+\texttt{baseline\_seg/config.py} & Loads JSON/YAML configs, validates required sections, applies CLI overrides, and computes fairness fingerprints. & This is the gatekeeper that ensured every run had a normalized recipe and a comparable locked setting set. \\
+\texttt{baseline\_seg/dataset.py} & Builds image/label pairs, MONAI transforms, and deterministic dataloaders. & It fixed the Windows worker-seeding issue and made the train/val/test splits reproducible. \\
+\texttt{baseline\_seg/trainer.py} & Runs optimization, validation, checkpointing, and efficiency logging. & It produced the actual model checkpoints and the validation curves that later fed the comparison tables. \\
+\texttt{baseline\_seg/pipeline.py} & Orchestrates train, validate, inference, and evaluation entry points. & It unified the model lifecycle so each run could be trained, predicted, and evaluated using the same config. \\
+\texttt{baseline\_seg/evaluate.py} & Computes per-case/per-organ metrics, hard-case mining, size categories, and visuals. & It made the evaluation clinically useful instead of only reporting a single average Dice. \\
+\texttt{baseline\_seg/compare.py} & Aggregates metrics across modes and variants. & It is how the pretraining, adaptation, prompting, and split-wise comparisons were materialized. \\
+\texttt{baseline\_seg/experiment\_manager.py} & Enforces fairness locks and writes run summaries. & This prevented invalid comparisons caused by changing schedules, seeds, or data roots. \\
+\texttt{baseline\_seg/final\_hybrid.py} & Selects the best component values, builds the final hybrid config, and packages the final model. & This is the decision engine that turned comparison artifacts into a final reproducible configuration. \\
+\texttt{baseline\_seg/failure\_analysis.py} & Categorizes missed organs, fragmentation, boundary errors, and confusion patterns. & It explained why a low Dice occurred instead of leaving the error as a black box. \\
+\texttt{baseline\_seg/adaptation.py} & Implements full fine-tuning, LoRA, adapters, and partial decoder tuning. & It made parameter-efficient and full-parameter comparisons possible. \\
+\texttt{baseline\_seg/pretraining.py} & Handles scratch, supervised, and SSL initialization paths. & It was needed to compare initialization strategies without changing the rest of the recipe. \\
+\texttt{baseline\_seg/prompting.py} & Creates spatial or text prompt channels and injects them into the image stream. & It is the mechanism behind the prompting comparison experiments. \\
+\bottomrule
+\end{longtable}
+
 \section{Final Hybrid Synthesis and Quantitative Results}
-Using the \texttt{select-final} utility, the most performant elements from individual sub-experiments (pretraining mode, adaptation strategies like LoRA/Full-FT, and prompting modes) were assembled. During the latest "smoke" test assessment on a reduced sub-sample to validate pipeline execution mechanics, the following baseline delta was observed:
+The final hybrid model was assembled by reading the comparison outputs and run summaries, filtering for fairness-valid runs, and then selecting the best component values that were supported by the available artifacts. The selection logic lives in \texttt{baseline\_seg/final\_hybrid.py}. It does not guess; it scores each candidate by finite-safe Dice and HD95, and when HD95 is missing or NaN in a smoke setting, it falls back to the metrics that are still valid.
+
+\subsection{How the selector works}
+The selector first loads comparison tables if they exist, then optionally reads \texttt{experiments/run\_summaries.csv}. When run summaries are provided, fairness-valid rows are kept and grouped by the component being selected. That means the choice of pretraining, adaptation, prompting, and backbone is made using the same fairness rules that were used during training.
+
+\subsection{What the archived selection actually chose}
+The archived selection JSON resolved to the following component set:
 
 \begin{table}[H]
-    \centering
-    \begin{tabular}{lccc}
-    \toprule
-    Model Pipeline & Mean Global Dice & Mean Global IoU & Delta vs Baseline \\
-    \midrule
-    Baseline Model (Smoke) & 0.004014 & \textit{Not calculated} & N/A \\
-    \textbf{Final Hybrid Framework} & \textbf{0.004281} & \textbf{0.002153} & \textbf{+6.65\% (+0.000267)}\\
-    \bottomrule
-    \end{tabular}
-    \caption{Immediate smoke-scale performance trajectory validating structural gains on identically locked data splits. The +6.65\% relative improvement confirms the mathematical superiority of the hybrid pipeline mechanics over the baseline logic.}
+\centering
+\begin{tabular}{p{0.24\textwidth}p{0.22\textwidth}p{0.42\textwidth}}
+\toprule
+Axis & Selected value & Why this was the right choice in the available artifacts \\
+\midrule
+Pretraining mode & scratch & The fair run summaries did not show a stronger alternative once smoke-scale metrics and fairness filters were applied. \\
+Pretraining method & masked\_recon & Retained as the config default field; under \texttt{scratch} mode it is not behaviorally active but is kept for completeness. \\
+Adaptation mode & full\_ft & All parameters remain trainable, which matched the best available comparison artifact and the final model packaging path. \\
+Prompt mode & none & Prompt-free training avoided extra channels and was the most stable choice in the one-case smoke comparisons. \\
+Backbone & unet & The 3D U-Net was the most robust baseline backbone in the current workspace and kept the hybrid model easy to reproduce. \\
+\bottomrule
+\end{tabular}
+\caption{Final-hybrid component selection derived from the archived comparison artifacts and fairness-valid run summaries.}
+\label{tab:final_hybrid_selection}
 \end{table}
+
+The important nuance is that the selector records a full component tuple, but not every field is equally active. For example, \texttt{pretraining.method=masked\_recon} is carried through the config even when \texttt{pretraining.mode=scratch}, where it becomes effectively a placeholder rather than a training behavior. The real behavioral choices that mattered for the final hybrid run were \texttt{scratch + full\_ft + none + unet}.
+
+\subsection{Why this was the final configuration}
+The final configuration reflects the exact trade-off that emerged from the whole session:
+\begin{itemize}[leftmargin=1.5em]
+    \item Once the dataset became deterministic and the fairness rules were locked, the simplest configuration was easiest to compare without hidden confounders.
+    \item The smoke-scale comparison artifacts had only one test case, so any more complex claim about SSL or prompt conditioning would have been fragile.
+    \item Full fine-tuning preserved the greatest number of trainable degrees of freedom, which is helpful when the evaluation sample is small and the model needs enough flexibility to adapt.
+    \item Prompt-free inference reduced the chance of prompt-generation artifacts leaking into the segmentation result.
+    \item The U-Net backbone remained the most transparent and easiest-to-package model for the final reusable inference bundle.
+\end{itemize}
+
+\subsection{Final comparison numbers}
+The final comparison table stored in \texttt{experiments/final\_results\_table.csv} shows:
+\begin{itemize}[leftmargin=1.5em]
+    \item final\_hybrid\_smoke Dice: 0.0042809984,
+    \item baseline\_smoke Dice: 0.0040137796,
+    \item absolute gain: 0.0002672188,
+    \item relative gain: 6.65\%.
+\end{itemize}
+
+The corresponding final evaluation summary also recorded test-split IoU of 0.0021527433 and a macro recall of 0.4976655799, which indicates that the model recalled about half of the foreground voxels present in the smoke case, but precision remained extremely low because there were many false-positive voxels in that tiny evaluation setting.
+
+\subsection{Why the later reruns were not used for fair comparison}
+The run summaries show two later final-hybrid smoke reruns that matched the same model variant but changed the training schedule. Those runs were flagged invalid because \texttt{train.max\_epochs} and \texttt{train.early\_stopping\_patience} no longer matched the reference fairness lock. They still produced the same final test Dice on the smoke case, but they could not be used as fair comparison evidence.
+
+\section{Observed Quantitative Outcomes and Organ-Level Results}
+The latest archived final-hybrid smoke evaluation on the test split was intentionally tiny, but it still reveals the shape of the model's behavior. The summary statistics were:
+\begin{itemize}[leftmargin=1.5em]
+    \item mean Dice: 0.0042809984,
+    \item mean IoU: 0.0021527433,
+    \item mean precision: 0.0024414207,
+    \item mean recall: 0.4976655543,
+    \item mean volume error: 34.2204513550,
+    \item HD95: NaN because the smoke set was too sparse for stable distance aggregation,
+    \item calibration metrics: NaN because probabilities were not exported in that smoke run.
+\end{itemize}
+
+These numbers are not a scientific benchmark. They are a systems-validation benchmark that proves the pipeline can generate consistent metrics, export reports, and surface failure modes.
+
+\subsection{Per-organ ranking from the smoke test}
+The per-organ table is more informative than the mean because it shows which structures the model can at least partially localize and which structures collapse entirely. The table below is ordered by Dice, highest first.
+
+\begin{longtable}{p{0.26\textwidth}p{0.12\textwidth}p{0.16\textwidth}p{0.16\textwidth}}
+\toprule
+Organ & Size & Dice & IoU \\
+\midrule
+right kidney & medium & 0.0132632 & 0.0066759 \\
+left kidney & medium & 0.0119441 & 0.0060079 \\
+portal vein / splenic vein & medium & 0.0096931 & 0.0048702 \\
+left adrenal gland & small & 0.0094043 & 0.0047244 \\
+aorta & small & 0.0083744 & 0.0042048 \\
+inferior vena cava & small & 0.0063984 & 0.0032095 \\
+liver & small & 0.0007792 & 0.0003897 \\
+stomach & small & 0.0003500 & 0.0001750 \\
+pancreas & small & $3.38\times10^{-11}$ & $3.38\times10^{-11}$ \\
+right adrenal gland & small & $9.41\times10^{-12}$ & $9.41\times10^{-12}$ \\
+bladder & small & $7.48\times10^{-12}$ & $7.48\times10^{-12}$ \\
+duodenum & small & $7.50\times10^{-12}$ & $7.50\times10^{-12}$ \\
+esophagus & small & $7.36\times10^{-12}$ & $7.36\times10^{-12}$ \\
+gallbladder & small & $6.92\times10^{-12}$ & $6.92\times10^{-12}$ \\
+spleen & small & $5.57\times10^{-12}$ & $5.57\times10^{-12}$ \\
+\bottomrule
+\end{longtable}
+
+The most useful interpretation is not that the absolute scores are low, but that the model preserved some structure on the larger or more regular organs while almost completely collapsing on the smallest and most ambiguous organs. The code marks these as low-dice organs, which is why the report pairs the numeric summary with organ-focused visuals.
+
+\subsection{Failure taxonomy used by the evaluator}
+The evaluation code classifies each organ/case pair into explicit failure types rather than leaving failures as unlabeled errors:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{missed organ}: the target organ exists, but the prediction has zero overlap;
+    \item \textbf{over-segmentation}: predicted volume is much larger than the ground truth;
+    \item \textbf{boundary error}: the surface is misplaced enough that HD95 becomes large;
+    \item \textbf{disconnected masks}: the predicted organ fragments into multiple islands;
+    \item \textbf{slice inconsistency}: the organ footprint changes abruptly across slices;
+    \item \textbf{wrong-organ confusion}: voxels are assigned to the wrong organ region;
+    \item \textbf{overconfident error}: the model is highly confident on the wrong voxels.
+\end{itemize}
+
+These categories are what make the visuals useful. They tell us whether the failure is caused by surface drift, gross localization failure, confusion with another organ, or a fragmented prediction field.
 
 \section{Comprehensive Visual Failure Analysis and Diagnostics}
 Because mean aggregate Dice alone masks deep anatomical failures and minority-class collapse, a rich \texttt{failure\_analysis.py} module generated explicit, structure-by-structure analytics.
@@ -155,7 +306,18 @@ Automated hard-case isolation tracked geometric fragmentation across notoriously
 \label{fig:hard_fail2}
 \end{figure}
 
+\section{Engineering Issues Encountered and Resolved}
+The report would be incomplete without documenting the bugs that had to be solved before the system could be considered stable.
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Windows DataLoader pickling failure}: a nested worker-seeding helper initially caused spawn-mode multiprocessing errors. The fix was to move the seeding helper to module scope in \texttt{dataset.py} and wrap it with \texttt{functools.partial}. This made the data loader picklable on Windows.
+    \item \textbf{Mixed batch structure in inference}: some MONAI batches arrived as lists or strings rather than direct tensors. The inference path was hardened to unwrap list values, guard label conversion, and only call \texttt{.to(device)} on tensor-like objects.
+    \item \textbf{NaN-safe aggregation}: sparse smoke runs produced undefined HD95, calibration, and other aggregate metrics. The evaluator and comparison utilities were updated to drop non-finite values before averaging so the output CSVs remain readable and stable.
+    \item \textbf{Fairness drift in reruns}: later smoke reruns changed the schedule overrides and therefore violated the locked recipe. The fairness manager flagged those runs as invalid for fair comparison, which is the correct behavior because the comparisons are only meaningful when all locked settings remain identical.
+    \item \textbf{Package reproducibility}: the final hybrid model needed to be usable outside this workspace, so the packaging step exports not only the checkpoint but also the frozen config and one-command Python/PowerShell inference launchers.
+\end{itemize}
+
 \section{Conclusion and Deliverables}
-The MedSegFM workspace has successfully established a strictly governed, multi-modal evaluation structure. The pipeline eliminates hidden variables, forces 100\% deterministic matching, and integrates highly visual failure review modules. The ultimate artifact, representing the Final Hybrid logic, was successfully sealed via \texttt{package-final}, synthesizing performance gains (+6.65\% relative Dice locally) and safely preserving inference weights alongside standalone deployment scripts (\texttt{run\_final\_infer.ps1}, \texttt{run\_final\_infer.py}).
+The MedSegFM workspace has successfully established a strictly governed, multi-modal evaluation structure. The pipeline eliminates hidden variables, forces 100\% deterministic matching, and integrates highly visual failure review modules. The final hybrid model was derived from the full chain of artifacts: dataset manifests, preprocessing metadata, baseline training logs, fairness fingerprints, comparison tables, hard-case reports, and the archived selection JSON. The ultimate artifact was then sealed via \texttt{package-final}, synthesizing performance gains (+6.65\% relative Dice locally) and preserving inference weights alongside standalone deployment scripts (\texttt{run\_final\_infer.ps1}, \texttt{run\_final\_infer.py}).
 
 \end{document}
