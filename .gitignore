@@ -1,0 +1,28 @@
+# Python cache and env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Large raw and derived medical data
+amos22/
+__MACOSX/
+processed/
+preprocessed/
+preprocessed_smoke/
+
+# Large experiment artifacts
+experiments/
+
+# Local LaTeX build files
+*.aux
+*.log
+*.out
+*.toc
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,12 @@
+{
+  "input_dir": "processed",
+  "output_dir": "preprocessed",
+  "target_spacing": [1.5, 1.5, 1.5],
+  "target_size": [128, 128, 128],
+  "hu_min": -200,
+  "hu_max": 300,
+  "normalization": "zscore",
+  "crop_mode": "foreground",
+  "seed": 42,
+  "save_mode": "save"
+}

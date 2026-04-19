@@ -1,0 +1,165 @@
+{
+  "seed": 42,
+  "deterministic": true,
+  "device": "auto",
+  "pre_clip_min": -200,
+  "pre_clip_max": 300,
+  "data": {
+    "root_dir": "preprocessed",
+    "split_manifest": "processed/manifests/cases_manifest.csv",
+    "label_map_path": "baseline_seg/label_map_example.json",
+    "num_workers": 4,
+    "cache_rate": 0.0,
+    "combine_train_val_for_train": false
+  },
+  "model": {
+    "backbone": "unet",
+    "in_channels": 1,
+    "num_classes": 16,
+    "roi_size": [
+      128,
+      128,
+      128
+    ],
+    "channels": [
+      32,
+      64,
+      128,
+      256,
+      512
+    ],
+    "strides": [
+      2,
+      2,
+      2,
+      2
+    ]
+  },
+  "train": {
+    "batch_size": 1,
+    "grad_accum_steps": 1,
+    "num_samples_per_volume": 2,
+    "max_epochs": 200,
+    "val_interval": 1,
+    "early_stopping_patience": 30,
+    "amp": true
+  },
+  "optimizer": {
+    "name": "adamw",
+    "lr": 0.0001,
+    "weight_decay": 1e-05
+  },
+  "scheduler": {
+    "name": "cosine",
+    "t_max": 200,
+    "eta_min": 1e-06
+  },
+  "augment": {
+    "flip_prob": 0.5,
+    "rotate_prob": 0.2,
+    "scale_prob": 0.2,
+    "elastic_prob": 0.05,
+    "noise_prob": 0.15
+  },
+  "loss": {
+    "dice_weight": 1.0,
+    "ce_weight": 1.0
+  },
+  "infer": {
+    "sw_batch_size": 1,
+    "overlap": 0.5,
+    "min_component_size": 30,
+    "apply_postprocess": true,
+    "save_probabilities": false
+  },
+  "logging": {
+    "output_dir": "experiments",
+    "experiment_name": "final_hybrid_smoke",
+    "tensorboard": true,
+    "save_epoch_metrics_json": true
+  },
+  "pretraining": {
+    "mode": "scratch",
+    "method": "masked_recon",
+    "pretrained_path": null,
+    "freeze_backbone": false
+  },
+  "adaptation": {
+    "mode": "full_ft",
+    "pretrained_path": null,
+    "freeze_backbone": false,
+    "lora_rank": 4,
+    "lora_alpha": 1.0,
+    "lora_on_conv": true,
+    "adapter_size": 8,
+    "adapter_on_linear": true,
+    "train_head": true
+  },
+  "prompting": {
+    "mode": "none",
+    "num_points": 3,
+    "use_bboxes": true,
+    "point_radius": 1,
+    "text_embedding_dim": 8,
+    "max_text_organs": 4,
+    "train_prompt_level": "full",
+    "val_prompt_level": "minimal",
+    "inference_prompt_level": "minimal",
+    "prompt_generation_strategy": "from_ground_truth"
+  },
+  "standard_recipe": {
+    "recipe_name": "final_hybrid_recipe",
+    "comparison_group": "final_hybrid_group",
+    "enforce": true,
+    "notes": "Keep standardized training settings fixed for final reproducible run."
+  },
+  "final_hybrid": {
+    "enabled": true,
+    "selected_components": {
+      "pretraining_mode": "scratch",
+      "pretraining_method": "masked_recon",
+      "adaptation_mode": "full_ft",
+      "prompt_mode": "none",
+      "backbone": "unet",
+      "sources": {
+        "run_summaries_pretraining_mode": {
+          "value": "scratch",
+          "dice_col": "dice_mean",
+          "hd95_col": "hd95_mean",
+          "dice": 0.0040137795731425,
+          "hd95": NaN
+        },
+        "run_summaries_adaptation_mode": {
+          "value": "full_ft",
+          "dice_col": "dice_mean",
+          "hd95_col": "hd95_mean",
+          "dice": 0.0040137795731425,
+          "hd95": NaN
+        },
+        "run_summaries_prompt_mode": {
+          "value": "none",
+          "dice_col": "dice_mean",
+          "hd95_col": "hd95_mean",
+          "dice": 0.0040137795731425,
+          "hd95": NaN
+        },
+        "run_summaries_backbone": {
+          "value": "unet",
+          "dice_col": "dice_mean",
+          "hd95_col": "hd95_mean",
+          "dice": 0.0040137795731425,
+          "hd95": NaN
+        },
+        "run_summaries_pretraining_method": {
+          "value": "masked_recon",
+          "dice_col": "dice_mean",
+          "hd95_col": "hd95_mean",
+          "dice": 0.0040137795731425,
+          "hd95": NaN
+        }
+      },
+      "compatibility_warnings": []
+    },
+    "selection_notes": "Auto-selected best components from comparison artifacts."
+  }
+}

@@ -1,0 +1,426 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+
+\title{MedSegFM End-to-End Technical Report\\Data Preparation, Baseline, Fairness, Evaluation, Failure Analysis, and Final Hybrid Model}
+\author{Project Workspace: MedSegFM}
+\date{April 19, 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+This report documents the complete implementation and execution history of the 3D multi-organ CT segmentation pipeline in this workspace, including:
+\begin{itemize}[leftmargin=1.5em]
+  \item dataset verification and cleaning,
+  \item standardized preprocessing,
+  \item baseline model training and evaluation,
+  \item controlled comparison framework (pretraining, adaptation, prompting),
+  \item fairness enforcement and reproducibility infrastructure,
+  \item multi-metric and per-organ evaluation,
+  \item failure-case analysis,
+  \item final hybrid model selection, training, evaluation, and packaging.
+\end{itemize}
+
+The implemented system is now modular, CLI-driven, and reproducible. Core artifacts are present under \texttt{experiments/}, with generated CSV/JSON reports and qualitative visualizations.
+
+\section{Initial Dataset Assessment and Folder Difference}
+\subsection{What Was Done}
+At project start, dataset structure was inspected and the difference between \texttt{amos22/} and \texttt{\_\_MACOSX/amos22/} was clarified.
+
+\subsection{Why It Was Done}
+This prevented accidental use of macOS archive metadata files and ensured the pipeline consumed the true dataset source.
+
+\subsection{Outcome}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{amos22/} is the real dataset used for processing and training.
+  \item \texttt{\_\_MACOSX/} is archive-related metadata residue and not used in pipeline logic.
+\end{itemize}
+
+\section{Step 2: Dataset Assembly and Cleaning}
+\subsection{What Was Done}
+A robust Step 2 pipeline was created in \texttt{prep\_pipeline/pipeline.py} and exposed via \texttt{prep\_pipeline/main.py}. It performs:
+\begin{itemize}[leftmargin=1.5em]
+  \item scan/validation of image-label pairs,
+  \item missing-pair detection,
+  \item shape/label consistency checks,
+  \item deterministic train/val/test split,
+  \item dataset materialization into processed structure,
+  \item manifest and report generation.
+\end{itemize}
+
+\subsection{Why It Was Done}
+To ensure training only sees valid pairs, to enforce deterministic splits for fair comparison, and to preserve traceability via manifests.
+
+\subsection{Outcome}
+Observed Step 2 run outcome:
+\begin{itemize}[leftmargin=1.5em]
+  \item discovered cases: 600,
+  \item usable cases: 360,
+  \item missing image-label pairs: 240,
+  \item split sizes: train 252, val 54, test 54.
+\end{itemize}
+Manifest outputs:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{processed/manifests/cases\_manifest.csv}
+  \item \texttt{processed/manifests/cases\_manifest.json}
+\end{itemize}
+
+\section{Step 3: Standardized Preprocessing}
+\subsection{What Was Done}
+A standardized preprocessing stage was implemented in \texttt{prep\_pipeline/step3\_preprocess.py} with CLI integration:
+\begin{itemize}[leftmargin=1.5em]
+  \item reorientation to RAS,
+  \item resampling to target spacing,
+  \item CT intensity clipping and normalization,
+  \item crop/pad to fixed shape,
+  \item metadata and report writing,
+  \item visual sanity checks.
+\end{itemize}
+
+\subsection{Why It Was Done}
+To normalize geometric and intensity domains before training, reducing variance caused by scanner differences and voxel spacing.
+
+\subsection{Outcome}
+Step 3 run completed with no preprocessing errors. Metadata outputs:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{preprocessed/manifests/preprocessing\_metadata.csv}
+  \item \texttt{preprocessed/manifests/preprocessing\_metadata.json}
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{preprocessed/visuals/sanity_check.png}
+  \caption{Preprocessing sanity-check visualization from standardized Step 3 output.}
+\end{figure}
+
+\section{Baseline Model Pipeline (Step 4/5 Foundation)}
+\subsection{What Was Done}
+A full baseline segmentation package was created under \texttt{baseline\_seg/}:
+\begin{itemize}[leftmargin=1.5em]
+  \item config loading/validation/overrides,
+  \item dataset/transforms/dataloaders,
+  \item model factory (UNet, UNETR, SwinUNETR),
+  \item training/validation loop with checkpointing,
+  \item inference and evaluation,
+  \item visualization,
+  \item CLI orchestration and utility scripts.
+\end{itemize}
+
+\subsection{Why It Was Done}
+To provide a reproducible baseline system that supports controlled experimentation and future extension.
+
+\subsection{Outcome}
+The baseline run generated checkpoints, logs, predictions, evaluation CSVs, and visuals in \texttt{experiments/}.
+
+\section{Reproducibility and Standardized Recipe (Step 5)}
+\subsection{What Was Done}
+The training/evaluation stack was standardized with:
+\begin{itemize}[leftmargin=1.5em]
+  \item fixed seeds and deterministic settings,
+  \item environment capture,
+  \item optimizer/scheduler/loss lock points,
+  \item structured experiment directories,
+  \item per-run config snapshots,
+  \item history CSV/JSON outputs,
+  \item optional TensorBoard logging.
+\end{itemize}
+
+\subsection{Why It Was Done}
+To guarantee that result differences can be attributed to intended experimental changes rather than hidden configuration drift.
+
+\subsection{Outcome}
+Each run now stores:
+\begin{itemize}[leftmargin=1.5em]
+  \item resolved config,
+  \item environment info,
+  \item fairness fingerprint/check,
+  \item training history,
+  \item run summary entries in \texttt{experiments/run\_summaries.csv}.
+\end{itemize}
+
+\section{Controlled Comparison Framework (Steps 6, 7, 8)}
+\subsection{Step 6: Pretraining Modes}
+\textbf{What:} Added \texttt{scratch/supervised/ssl} modes and SSL methods (masked reconstruction, denoise, contrastive).\\
+\textbf{Why:} Compare initialization strategy impact under fixed training settings.\\
+\textbf{Outcome:} Pretraining workflow integrated and selectable via config/CLI.
+
+\subsection{Step 7: Adaptation Modes}
+\textbf{What:} Added \texttt{full\_ft}, \texttt{partial\_decoder}, \texttt{lora}, \texttt{adapters} with parameter statistics.\\
+\textbf{Why:} Benchmark fine-tuning efficiency/accuracy trade-offs.\\
+\textbf{Outcome:} Adaptation-specific comparisons and efficiency exports are available.
+
+\subsection{Step 8: Prompting Modes}
+\textbf{What:} Added \texttt{none/spatial/text} prompt conditioning and prompt levels.\\
+\textbf{Why:} Test whether prompt-based conditioning improves segmentation quality.\\
+\textbf{Outcome:} Prompt-aware training/inference integrated with comparison commands.
+
+\section{Fairness Enforcement Across Variants}
+\subsection{What Was Done}
+A fairness manager was added (\texttt{baseline\_seg/experiment\_manager.py}) to enforce shared settings and detect invalid comparisons.
+
+Locked checks include:
+\begin{itemize}[leftmargin=1.5em]
+  \item seed,
+  \item data roots and split manifests,
+  \item preprocessing clip ranges,
+  \item augment/loss/optimizer/scheduler,
+  \item batch size / grad accumulation,
+  \item schedule and early stopping controls.
+\end{itemize}
+
+Variant control was added to enforce single-knob change policy across:
+\begin{itemize}[leftmargin=1.5em]
+  \item backbone,
+  \item pretraining,
+  \item adaptation,
+  \item prompting.
+\end{itemize}
+
+\subsection{Why It Was Done}
+To ensure apples-to-apples comparisons and prevent invalid conclusions from mixed-condition runs.
+
+\subsection{Outcome}
+Fairness artifacts now exist:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{experiments/\_fairness/baseline\_family.json}
+  \item \texttt{experiments/\_fairness/final\_hybrid\_group.json}
+  \item per-run \texttt{fairness\_check.json} and \texttt{fairness\_fingerprint.json}
+\end{itemize}
+
+\section{Evaluation Upgrade to Multi-Metric and Per-Organ Reporting (Steps 9/10)}
+\subsection{What Was Done}
+Evaluation was expanded in \texttt{baseline\_seg/metrics.py} and \texttt{baseline\_seg/evaluate.py}:
+\begin{itemize}[leftmargin=1.5em]
+  \item Dice per organ and mean Dice,
+  \item IoU/Jaccard,
+  \item HD95,
+  \item surface Dice (when available),
+  \item precision/recall,
+  \item volume error,
+  \item optional calibration/uncertainty (ECE, confidence, entropy, variation ratio) when probabilities are available.
+\end{itemize}
+
+Added outputs:
+\begin{itemize}[leftmargin=1.5em]
+  \item per-case CSV,
+  \item per-organ CSV,
+  \item compact organ ranking CSV,
+  \item size-category CSV,
+  \item summary JSON,
+  \item split and per-organ comparison tables via CLI.
+\end{itemize}
+
+\subsection{Why It Was Done}
+Mean Dice alone hides weak organs and clinically meaningful failure modes. This upgrade exposes organ-level behavior and hard cases.
+
+\subsection{Outcome}
+Rich evaluation artifacts are now standard and generated in each evaluation run.
+
+\section{Failure Analysis Pipeline}
+\subsection{What Was Done}
+A dedicated module \texttt{baseline\_seg/failure\_analysis.py} and review tools were added.
+
+Automatic hard-case and failure categorization includes:
+\begin{itemize}[leftmargin=1.5em]
+  \item lowest Dice / highest HD95 case mining,
+  \item missed organs,
+  \item over-segmentation,
+  \item boundary errors,
+  \item disconnected masks,
+  \item slice inconsistency,
+  \item wrong-organ confusion,
+  \item overconfident errors (if confidence available).
+\end{itemize}
+
+A markdown reviewer was added:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{baseline\_seg/review\_failures.py}
+  \item \texttt{review\_failures.py}
+\end{itemize}
+
+\subsection{Why It Was Done}
+To move beyond aggregate metrics and directly identify where/why segmentation fails, supporting model debugging and targeted improvements.
+
+\subsection{Outcome}
+Failure reports and visuals were generated, including:
+\begin{itemize}[leftmargin=1.5em]
+  \item failure details CSV,
+  \item failure pattern CSV/JSON,
+  \item hard-case list,
+  \item representative failure visual panels.
+\end{itemize}
+
+\section{Final Hybrid Model Construction}
+\subsection{What Was Done}
+A full final-hybrid workflow was implemented in \texttt{baseline\_seg/final\_hybrid.py} and CLI:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{select-final}: selects best components from comparison artifacts,
+  \item \texttt{compare-final}: final-vs-baseline table and ablation export,
+  \item \texttt{package-final}: packages model/config and exports inference scripts.
+\end{itemize}
+
+Template and selected configs:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{baseline\_seg/config\_final\_hybrid\_template.yaml}
+  \item \texttt{baseline\_seg/config\_final\_hybrid\_selected.json}
+\end{itemize}
+
+\subsection{Why It Was Done}
+To combine the best available components into one reproducible final model pipeline and enable straightforward reuse/deployment.
+
+\subsection{Outcome}
+Selection output and ablation metadata:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{experiments/final\_hybrid\_selection.json}
+  \item \texttt{experiments/final\_results\_table\_ablation.csv}
+  \item \texttt{experiments/final\_results\_table\_ablation.json}
+\end{itemize}
+
+\section{Latest Evaluation and Quantitative Outcomes}
+\subsection{Final Hybrid Latest Evaluation}
+From \texttt{experiments/final\_eval\_latest/eval\_test\_final\_hybrid\_latest\_summary.json}:
+\begin{itemize}[leftmargin=1.5em]
+  \item mean Dice: 0.0042809984,
+  \item mean IoU: 0.0021527433,
+  \item mean HD95: NaN on this tiny smoke sample,
+  \item macro Dice: 0.0042809979,
+  \item macro IoU: 0.0021527431.
+\end{itemize}
+
+\subsection{Final vs Baseline Table}
+From \texttt{experiments/final\_results\_table.csv}:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Model & Dice & HD95 & Cases \\
+\midrule
+final\_hybrid\_smoke & 0.004281 & NaN & 1 \\
+baseline\_smoke & 0.004014 & NaN & 1 \\
+Delta (final - baseline) & +0.000267 & NaN & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Visual Evidence}
+\subsection{Preprocessing and Segmentation Panels}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.78\textwidth]{experiments/final_eval_latest/visuals/test_AMOS22__amos_0008.png}
+  \caption{Final evaluation panel: image, ground truth, prediction, and error overlay.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_weak_organ_bladder_AMOS22__amos_0008.png}
+  \hfill
+  \includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_strong_organ_left_kidney_AMOS22__amos_0008.png}
+  \caption{Organ-focused examples from latest final evaluation (weak and strong organ cases).}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_failure_organ_spleen_AMOS22__amos_0008.png}
+  \hfill
+  \includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_failure_organ_gallbladder_AMOS22__amos_0008.png}
+  \caption{Representative failure visualizations by organ category.}
+\end{figure}
+
+\section{Packaging and Reusability}
+\subsection{What Was Done}
+Final-model packaging command generated deployable artifacts:
+\begin{itemize}[leftmargin=1.5em]
+  \item model checkpoint copy,
+  \item frozen config copy,
+  \item reusable Python inference launcher,
+  \item reusable PowerShell inference launcher.
+\end{itemize}
+
+\subsection{Outcome}
+Packaged outputs:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{experiments/final\_package/final\_hybrid\_smoke.pt}
+  \item \texttt{experiments/final\_package/final\_hybrid\_smoke\_config.json}
+  \item \texttt{experiments/final\_package/run\_final\_infer.py}
+  \item \texttt{experiments/final\_package/run\_final\_infer.ps1}
+\end{itemize}
+
+\section{Issues Encountered and Fixes}
+\begin{longtable}{p{0.23\textwidth}p{0.30\textwidth}p{0.40\textwidth}}
+\toprule
+Issue & Why It Happened & Resolution and Outcome \\
+\midrule
+Windows DataLoader worker pickling error & Local nested worker seed function is not picklable with Windows multiprocessing spawn mode & Moved worker seed function to module scope in \texttt{baseline\_seg/dataset.py}; training resumed successfully. \\
+Inference batch type mismatch (list/string .to errors) & Runtime batch structure variability in MONAI/PyTorch collation & Hardened inference input normalization in \texttt{baseline\_seg/pipeline.py}; inference became robust. \\
+Sparse smoke metrics with NaNs/unstable reducers & Tiny test sample and absent organ classes in per-case aggregation & Added finite-safe reducers in metrics/compare/evaluate utilities; reporting stabilized. \\
+Fairness warnings during smoke overrides & Fast smoke overrides changed locked schedule fields after fairness registry init & Expected warning behavior validated fairness guardrails; strict final runs should avoid those override drifts. \\
+\bottomrule
+\end{longtable}
+
+\section{Comprehensive Deliverables Produced}
+\subsection{Code Modules Added/Extended}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{baseline\_seg/config.py}
+  \item \texttt{baseline\_seg/dataset.py}
+  \item \texttt{baseline\_seg/models.py}
+  \item \texttt{baseline\_seg/pretraining.py}
+  \item \texttt{baseline\_seg/adaptation.py}
+  \item \texttt{baseline\_seg/prompting.py}
+  \item \texttt{baseline\_seg/trainer.py}
+  \item \texttt{baseline\_seg/pipeline.py}
+  \item \texttt{baseline\_seg/metrics.py}
+  \item \texttt{baseline\_seg/evaluate.py}
+  \item \texttt{baseline\_seg/compare.py}
+  \item \texttt{baseline\_seg/experiment\_manager.py}
+  \item \texttt{baseline\_seg/failure\_analysis.py}
+  \item \texttt{baseline\_seg/final\_hybrid.py}
+  \item \texttt{baseline\_seg/review\_failures.py}
+  \item \texttt{baseline\_seg/cli.py}
+  \item \texttt{baseline\_seg/README.md}
+\end{itemize}
+
+\subsection{Configs and Scripts Added}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{baseline\_seg/config\_fairness\_template.yaml}
+  \item \texttt{baseline\_seg/config\_final\_hybrid\_template.yaml}
+  \item \texttt{baseline\_seg/config\_final\_hybrid\_selected.json}
+  \item \texttt{train.py}
+  \item \texttt{pretrain\_ssl.py}
+  \item \texttt{finetune.py}
+  \item \texttt{review\_failures.py}
+\end{itemize}
+
+\section{Conclusions and Practical Interpretation}
+\begin{itemize}[leftmargin=1.5em]
+  \item The pipeline has progressed from raw dataset QA to a complete, reproducible experimentation and final-model workflow.
+  \item Fairness and reproducibility controls are now integrated at runtime, not only as documentation.
+  \item Evaluation is substantially richer than mean Dice and now includes organ-level, failure-level, and visualization-centric diagnostics.
+  \item Final hybrid selection, training, comparison, and packaging are implemented and operational in this workspace.
+  \item Current quantitative values are from smoke-scale runs and should be interpreted as workflow validation, not final scientific performance.
+\end{itemize}
+
+\section{Recommended Next Steps}
+\begin{enumerate}[leftmargin=1.5em]
+  \item Execute full-scale final-hybrid training on \texttt{preprocessed/} with strict locked settings (no smoke overrides).
+  \item Run cross-dataset evaluation using \texttt{--gt-dir} and \texttt{--image-dir} for external generalization testing.
+  \item Rebuild final comparison and ablation tables from full-scale runs only.
+  \item Freeze package release from the best full-scale checkpoint and archive corresponding logs/config/hash artifacts.
+\end{enumerate}
+
+\end{document}

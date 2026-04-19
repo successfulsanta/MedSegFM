@@ -1,0 +1,202 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{float}
+\usepackage{setspace}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\title{An End-to-End Reproducible Pipeline for 3D Multi-Organ CT Segmentation:\\From Data Curation to Fairness-Aware Hybrid Modeling}
+\author{MedSegFM Workspace Study}
+\date{April 19, 2026}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+This paper presents a complete practical framework for 3D multi-organ CT segmentation developed in the MedSegFM workspace. The workflow spans dataset verification, deterministic data assembly and cleaning, standardized preprocessing, baseline model training, controlled variant comparisons, fairness enforcement, rich evaluation, failure analysis, and final hybrid model packaging. The core contribution is not a single architecture novelty, but a full reproducible experimentation system designed to reduce hidden confounders and support reliable model selection. The implemented stack includes configuration locking, fairness fingerprints, split-aware reporting, per-organ diagnostics, and failure-mode review outputs. The resulting system provides a robust foundation for full-scale training and external validation while preserving traceability of all decisions and artifacts.
+\end{abstract}
+
+\section{Introduction}
+Automated 3D multi-organ segmentation in abdominal CT remains challenging due to anatomical variability, class imbalance, scanner heterogeneity, and annotation sparsity. While many studies report a final Dice score, fewer provide an end-to-end reproducible process that can be audited from raw data to packaged inference artifacts.
+
+This work addresses that gap by building a complete research and engineering pipeline in a single workspace. The focus is methodological rigor: deterministic data handling, controlled comparisons, fairness validation across experimental variants, and clinically meaningful diagnostics beyond aggregate overlap metrics.
+
+\section{Objectives}
+The project was designed with five concrete objectives:
+\begin{enumerate}
+\item Establish a deterministic and auditable data pipeline from raw AMOS-style folders to train/val/test manifests.
+\item Standardize spatial and intensity preprocessing for stable 3D model training.
+\item Implement a modular baseline segmentation framework with configurable architecture and training options.
+\item Enable fair comparisons across pretraining, adaptation, and prompting variants under locked settings.
+\item Produce a final hybrid model workflow with quantitative comparison tables, failure analyses, and deployment-ready packaging.
+\end{enumerate}
+
+\section{Dataset and Data Governance}
+\subsection{Raw Data Inspection}
+Initial inspection verified the distinction between the real dataset folder and archive metadata residue. The working dataset source was the AMOS directory, while the macOS extraction metadata directory was excluded from all training and evaluation logic.
+
+\subsection{Step 2: Dataset Assembly and Cleaning}
+A deterministic assembly stage was implemented to pair images and labels, validate shape consistency, detect missing pairs, and materialize split-specific manifests.
+
+Observed run outcomes included:
+\begin{itemize}
+\item total discovered cases: 600,
+\item usable paired cases: 360,
+\item missing image-label pairs: 240,
+\item final split sizes: train 252, val 54, test 54.
+\end{itemize}
+
+This stage generated machine-readable manifests used as canonical split references for all downstream runs.
+
+\section{Standardized Preprocessing}
+\subsection{Step 3 Pipeline}
+The preprocessing stage applied a consistent geometric and intensity normalization protocol:
+\begin{itemize}
+\item orientation normalization to RAS,
+\item resampling to fixed target spacing,
+\item intensity clipping and normalization for CT,
+\item crop/pad to fixed model input geometry,
+\item metadata export and quality reports.
+\end{itemize}
+
+\subsection{Rationale}
+Without preprocessing standardization, model performance can vary due to scanner-specific spacing and intensity distributions rather than true modeling differences. This stage reduces nuisance variance and improves comparability between experiments.
+
+\section{Baseline Segmentation Framework}
+A modular package was implemented with clear separation of concerns for config, dataset loading, model construction, optimization, inference, and evaluation.
+
+\subsection{Core Design Principles}
+\begin{itemize}
+\item Config-first reproducibility with explicit defaults and overrides.
+\item Deterministic behavior where feasible (seeded data flow and run metadata capture).
+\item CLI-driven orchestration for train, validate, infer, evaluate, and compare tasks.
+\item Structured experiment directories to preserve per-run state and outputs.
+\end{itemize}
+
+\subsection{Implementation Notes}
+The framework supports baseline and transformer-based variants, with hooks for pretraining style, adaptation strategy, and prompting mode. This enabled a uniform training API for all experimental branches.
+
+\section{Controlled Experimental Axes}
+\subsection{Pretraining Comparisons}
+The system supports scratch, supervised initialization, and self-supervised pretraining pathways. The primary goal is to compare initialization effects under fixed optimization and data settings.
+
+\subsection{Adaptation Comparisons}
+Adaptation strategies include full fine-tuning, partial decoder tuning, and parameter-efficient options. This enables analysis of quality-efficiency trade-offs.
+
+\subsection{Prompting Comparisons}
+Prompt-aware modes were integrated as controlled variants to evaluate whether additional contextual conditioning improves organ segmentation behavior.
+
+\section{Fairness and Reproducibility Controls}
+A fairness lock mechanism was implemented to prevent invalid comparisons caused by hidden configuration drift. Critical keys (seed, data split references, preprocessing ranges, optimization schedule, and training budget controls) are fingerprinted and checked across runs.
+
+If variants violate locked settings, warnings are emitted and comparisons are marked as invalid or cautionary. This turns fairness from a documentation promise into an enforceable runtime rule.
+
+\section{Evaluation Protocol}
+\subsection{Metrics}
+Evaluation was extended beyond mean Dice to include:
+\begin{itemize}
+\item Dice and IoU,
+\item HD95,
+\item precision and recall,
+\item volume error,
+\item surface-aware and calibration-related metrics when probability outputs are available.
+\end{itemize}
+
+\subsection{Granularity}
+Reports are produced at multiple levels:
+\begin{itemize}
+\item per-case,
+\item per-organ,
+\item split summary,
+\item compact ranking tables for organ-wise strengths and weaknesses.
+\end{itemize}
+
+This design helps identify clinically relevant weak organs that would be masked by a single aggregate score.
+
+\section{Failure Analysis and Diagnostic Review}
+A dedicated failure-analysis module categorizes poor cases and patterns, including missed organs, over-segmentation, boundary inaccuracies, and structural inconsistencies. Representative qualitative panels are generated to support manual inspection.
+
+This analysis layer transforms evaluation from passive scoring into actionable debugging intelligence for subsequent model refinement.
+
+\section{Final Hybrid Model Workflow}
+A final-hybrid pipeline was implemented to select strong components from comparison outputs, compose a final configuration, evaluate against baseline references, and package deployment artifacts.
+
+Generated final artifacts include:
+\begin{itemize}
+\item final selection JSON,
+\item comparison and ablation CSV/JSON tables,
+\item packaged checkpoint and frozen config,
+\item reusable inference launchers.
+\end{itemize}
+
+\section{Observed Quantitative Outcomes}
+On the latest smoke-scale evaluation, representative metrics included:
+\begin{itemize}
+\item final-hybrid mean Dice: 0.004281,
+\item baseline mean Dice: 0.004014,
+\item observed delta: +0.000267.
+\end{itemize}
+
+These values validate the end-to-end mechanics but should not be interpreted as definitive scientific performance due to smoke-scale sample size and sparse class coverage.
+
+\section{Qualitative Visual Results}
+Figure-based inspection complements scalar metrics by showing where boundaries are captured well and where organ confusion or under-segmentation appears.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\textwidth]{preprocessed/visuals/sanity_check.png}
+\caption{Preprocessing sanity check from standardized Step 3 outputs.}
+\label{fig:preprocess_sanity}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{experiments/final_eval_latest/visuals/test_AMOS22__amos_0008.png}
+\caption{Final hybrid evaluation panel showing image, label, prediction, and error overlay for a representative test case.}
+\label{fig:final_eval_panel}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_strong_organ_left_kidney_AMOS22__amos_0008.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{experiments/final_eval_latest/visuals/test_failure_organ_gallbladder_AMOS22__amos_0008.png}
+\caption{Organ-focused qualitative comparison: a stronger left-kidney segmentation (left) and a failure-case gallbladder segmentation (right).}
+\label{fig:organ_qualitative}
+\end{figure}
+
+\section{Engineering Issues Encountered and Resolved}
+\subsection{Windows Multiprocessing Pickling Constraint}
+A nested DataLoader worker seed function caused Windows spawn-mode pickling failures. The fix moved worker initialization to module scope, restoring training stability.
+
+\subsection{Inference Batch-Type Robustness}
+Batch collation edge cases produced type mismatches during inference. Input normalization logic was hardened to support heterogeneous batch structures.
+
+\subsection{NaN-Safe Aggregation}
+Small-sample evaluation occasionally produced undefined metrics. Finite-safe reducers were added to avoid unstable summary behavior.
+
+\section{Threats to Validity}
+\begin{itemize}
+\item Smoke-scale runs are suitable for pipeline validation, not performance claims.
+\item Some metrics (for example HD95) can be undefined in sparse test scenarios.
+\item External generalization remains unverified until cross-dataset evaluation is executed.
+\end{itemize}
+
+\section{Future Work}
+\begin{enumerate}
+\item Execute full-scale training with strict fairness lock and no smoke overrides.
+\item Perform external validation with explicit image/ground-truth directory routing.
+\item Recompute final and ablation tables on full-size cohorts only.
+\item Extend uncertainty-driven triage for clinically risky predictions.
+\end{enumerate}
+
+\section{Conclusion}
+This work delivers a complete, reproducible research pipeline for 3D multi-organ CT segmentation, spanning raw data governance to packaged final inference assets. The principal achievement is a fairness-aware experimentation framework that enables reliable model comparison, rich diagnostics, and transparent traceability. The system is ready for full-scale training and rigorous external validation studies.
+
+\end{document}

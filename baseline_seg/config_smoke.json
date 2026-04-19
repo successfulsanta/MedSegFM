@@ -1,0 +1,49 @@
+{
+  "seed": 42,
+  "deterministic": true,
+  "device": "auto",
+  "data": {
+    "root_dir": "preprocessed_smoke",
+    "label_map_path": "baseline_seg/label_map_example.json",
+    "num_workers": 0,
+    "cache_rate": 0.0
+  },
+  "model": {
+    "backbone": "unet",
+    "in_channels": 1,
+    "num_classes": 16,
+    "roi_size": [64, 64, 64],
+    "channels": [16, 32, 64, 128],
+    "strides": [2, 2, 2]
+  },
+  "train": {
+    "batch_size": 1,
+    "num_samples_per_volume": 1,
+    "max_epochs": 1,
+    "val_interval": 1,
+    "early_stopping_patience": 2,
+    "lr": 0.0002,
+    "weight_decay": 0.00001,
+    "amp": false
+  },
+  "augment": {
+    "flip_prob": 0.2,
+    "rotate_prob": 0.1,
+    "scale_prob": 0.1,
+    "noise_prob": 0.05
+  },
+  "loss": {
+    "dice_weight": 1.0,
+    "ce_weight": 1.0
+  },
+  "infer": {
+    "sw_batch_size": 1,
+    "overlap": 0.25,
+    "min_component_size": 10,
+    "apply_postprocess": false
+  },
+  "logging": {
+    "output_dir": "experiments",
+    "experiment_name": "smoke_unet"
+  }
+}
