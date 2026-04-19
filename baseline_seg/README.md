@@ -64,6 +64,10 @@ python pretrain_ssl.py --config baseline_seg/config_compare_example.yaml --overr
 python finetune.py --config baseline_seg/config_compare_example.yaml --override pretraining.mode=supervised pretraining.pretrained_path=path/to/supervised.pt
 ```
 
+## Report
+
+You can view the full detailed architectural and numerical findings in the attached PDF: [MedSegFM_Comprehensive_Detailed_Report.pdf](../MedSegFM_Comprehensive_Detailed_Report.pdf).
+
 ## Notes
 
 - Reproducibility controls are enabled via seed + deterministic flags.
